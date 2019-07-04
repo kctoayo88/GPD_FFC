@@ -1,6 +1,7 @@
 # GPD_FFC
 Grasp Pose Detection with Frictional Force Compute (GPD_FFC)
 
+
 ## Overview
 
 This project extends the application of GPD.
@@ -31,4 +32,4 @@ pp. 1455 - 1473. October 2017.
 [2] Marcus Gualtieri, Andreas ten Pas, Kate Saenko, and Robert Platt. [**High precision grasp pose detection in dense 
 clutter**](http://arxiv.org/abs/1603.01564). IROS 2016. 598-605.
 
-[3] Andreas ten Pas. [GPD](https://github.com/atenpas/gpd)
+[3] Andreas ten Pas. [**GPD**](https://github.com/atenpas/gpd)
