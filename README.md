@@ -12,7 +12,7 @@ We compute the frictional force of grasp candidates and use the MoveIt! program 
 
 1. Use original GPD program to generate grasp candidates.
 
-2. Compute the frictional force of each grasp candidates, then output the highest score candidate's GraspConfig message.
+2. Compute the frictional force of each grasp candidates, then output the GraspConfig message of highest FFC score candidate.
     ```
     rosrun gpd frictional_force_compute
     ```
