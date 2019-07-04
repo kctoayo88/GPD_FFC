@@ -12,7 +12,7 @@ We compute the frictional force of grasp candidates and use the MoveIt! program 
 1. Use original GPD program to generate grasp candidates.
 
 2. Compute the frictional force of each grasp candidates, then output the highest score candidate's GraspConfig message.
-       ```
+    ```
     rosrun gpd frictional_force_compute
     ```
 
@@ -31,4 +31,4 @@ pp. 1455 - 1473. October 2017.
 [2] Marcus Gualtieri, Andreas ten Pas, Kate Saenko, and Robert Platt. [**High precision grasp pose detection in dense 
 clutter**](http://arxiv.org/abs/1603.01564). IROS 2016. 598-605.
 
-[3] [GPD](https://github.com/atenpas/gpd)
+[3] Andreas ten Pas. [GPD](https://github.com/atenpas/gpd)
