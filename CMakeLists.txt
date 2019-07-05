@@ -4,8 +4,8 @@ project(gpd)
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
-find_package(catkin REQUIRED COMPONENTS cmake_modules eigen_conversions geometry_msgs message_generation roscpp
-  sensor_msgs std_msgs)
+find_package(catkin REQUIRED COMPONENTS cmake_modules eigen_conversions geometry_msgs message_generation roscpp  rospy sensor_msgs std_msgs tf tf2 tf2_ros pcl_conversions pcl_ros moveit_ros_planning_interface)
+
 
 # Eigen3
 find_package(Eigen3)
@@ -139,7 +139,7 @@ generate_messages(DEPENDENCIES geometry_msgs sensor_msgs std_msgs)
 catkin_package(
 INCLUDE_DIRS include
 CATKIN_DEPENDS cmake_modules eigen_conversions geometry_msgs message_runtime roscpp sensor_msgs std_msgs
-DEPENDS EIGEN3 OpenCV PCL
+DEPENDS EIGEN3 OpenCV PCL rospy
 )
 
 ###########
@@ -287,3 +287,7 @@ if(USE_CAFFE STREQUAL "ON")
                         PROPERTIES OUTPUT_NAME test_occlusion
                         PREFIX "")
 endif()
+
+
+add_executable(${PROJECT_NAME}_frictional_force_compute src/FFC/frictional_force_compute.cpp)
+target_link_libraries(${PROJECT_NAME}_frictional_force_compute ${catkin_LIBRARIES})
