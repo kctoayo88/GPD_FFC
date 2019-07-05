@@ -21,6 +21,10 @@ We compute the frictional force of grasp candidates and use the MoveIt! program 
     ```
     rosrun gpd FFC_get_grasps.py
     ```
+    
+![Compare_FFC](tutorials/Compare_FFC.png)
+
+**Red marker stands for FFC grasp candidate, green marker stands for GPD highest score candidate respectively**.
 
 
 ## Reference
