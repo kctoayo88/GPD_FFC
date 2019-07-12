@@ -52,7 +52,7 @@ def cloudCallback(msg):
 rospy.init_node('select_grasp')
 
 # Subscribe to the ROS topic that contains the grasps.
-cloud_sub = rospy.Subscriber('/passthrough_output', PointCloud2, cloudCallback)
+cloud_sub = rospy.Subscriber('/voxel_output', PointCloud2, cloudCallback)
 pub = rospy.Publisher('/cloud_indexed', CloudIndexed, queue_size=1)
 
 # Wait for point cloud to arrive.

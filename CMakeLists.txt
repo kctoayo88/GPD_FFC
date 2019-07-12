@@ -289,5 +289,5 @@ if(USE_CAFFE STREQUAL "ON")
 endif()
 
 
-add_executable(${PROJECT_NAME}_frictional_force_compute src/FFC/frictional_force_compute.cpp)
+add_executable(${PROJECT_NAME}_frictional_force_compute src/frictional_force/frictional_force_compute.cpp)
 target_link_libraries(${PROJECT_NAME}_frictional_force_compute ${catkin_LIBRARIES})

@@ -23,14 +23,6 @@ def cloudCallback(msg):
     X = cloud
     print(cloud)
 
-    # Remove the plane point of point cloud
-    A = np.c_[X[:,0], X[:,1], np.ones(X.shape[0])]
-    C, _, _, _ = lstsq(A, X[:,2])
-    a, b, c, d = C[0], C[1], -1., C[2] # coefficients of the form: a*x + b*y + c*z + d = 0.
-    dist = ((a*X[:,0] + b*X[:,1] + d) - X[:,2])**2
-    err = dist.sum()
-    idx = np.where(dist > 0.01)
-
     # Create CloudIndexed msg from remaining point
     msg = CloudIndexed()
     header = Header()
@@ -39,7 +31,7 @@ def cloudCallback(msg):
     msg.cloud_sources.cloud = point_cloud2.create_cloud_xyz32(header, cloud.tolist())
     msg.cloud_sources.view_points.append(Point(0,0,0))
     msg.cloud_sources.camera_source.append(Int64(0))
-    for i in idx[0]:
+    for i in X[0]:
         msg.indices.append(Int64(i))    
 
     # Hit key to publish topic
@@ -52,7 +44,7 @@ def cloudCallback(msg):
 rospy.init_node('select_grasp')
 
 # Subscribe to the ROS topic that contains the grasps.
-cloud_sub = rospy.Subscriber('/passthrough_output', PointCloud2, cloudCallback)
+cloud_sub = rospy.Subscriber('/segmentation_output', PointCloud2, cloudCallback)
 pub = rospy.Publisher('/cloud_indexed', CloudIndexed, queue_size=1)
 
 # Wait for point cloud to arrive.

@@ -23,7 +23,7 @@ grasps = []
 x_offset = 0.05
 y_offset = 0
 gripper_length = 0.3
-vertical_threshold = 0.85
+vertical_threshold = 0.70
 forward_dis = 0.1
 
 # Get the msg from /cloud_indexed topic.
@@ -200,6 +200,7 @@ def main():
             a = np.array([top_grasp.approach.x, top_grasp.approach.y, top_grasp.approach.z])
             b = np.array([0 , 0.70710766833 ,0.707105894042]) #vertical appraoch vector value 
             dot_product = np.dot(a,b)
+            print 'Threshold value: ', dot_product
 
             # Give a threshold of collided
             if dot_product >= vertical_threshold :

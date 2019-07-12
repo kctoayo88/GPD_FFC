@@ -25,12 +25,12 @@
 #include <vector>  
 #include <list> 
 
-int top_n_grasp_used = 10;          // Number of grasp candidates use to compute FFC
-float hand_outer_diameter = 0.1;    // Hand configuration
-float hand_depth = 0.06;            // Hand configuration
-float hand_height = 0.035;          // Hand configuration
-float nt = 0.7;                     // Threshold of vertical normals
-float h = 0.0025;                   // Threshold of Left and Right offsets
+float hand_outer_diameter = 0.10;    // Hand configuration
+float hand_depth = 0.065;            // Hand configuration
+float hand_height = 0.02;            // Hand configuration
+float finger_width = 0.015;          // Hand configuration
+float nt = 0.7;                      // Threshold of vertical normals
+float h = 0.01;                      // Threshold of Left and Right offsets
 
 //geometry_msgs::PointStamped R1, R2, R3, R4;
 ros::Publisher pub_r1_r4_pc, pub_FFC_pc, pub_FFC_GraspConfig, pub_original_candidate, pub_FFC_candidate;
@@ -42,7 +42,6 @@ visualization_msgs::MarkerArray convertToVisualGraspMsg(const gpd::GraspConfig G
 {
   // Get parameters of GraspConfig
   int i = 1;
-  double finger_width = 0.01;
   double width = hand_outer_diameter;
   double hw = 0.5 * width;
 
@@ -99,7 +98,7 @@ visualization_msgs::Marker createFingerMarker(const Eigen::Vector3d& center, con
   marker.pose.position.x = center(0);
   marker.pose.position.y = center(1);
   marker.pose.position.z = center(2);
-  marker.lifetime = ros::Duration(20);
+  marker.lifetime = ros::Duration(30);
 
   // Use orientation of hand frame
   Eigen::Quaterniond quat(frame);
@@ -146,7 +145,7 @@ visualization_msgs::Marker createHandBaseMarker(const Eigen::Vector3d& start, co
   marker.pose.position.x = center(0);
   marker.pose.position.y = center(1);
   marker.pose.position.z = center(2);
-  marker.lifetime = ros::Duration(20);
+  marker.lifetime = ros::Duration(30);
 
   // Use orientation of hand frame
   Eigen::Quaterniond quat(frame);
@@ -508,10 +507,10 @@ void GraspConfigListCallback(const gpd::GraspConfigList &msg)
   std::list<int> FFC_score_list;
   std::list<int>::iterator FFC_score_list_iter;
   
-  ROS_INFO("Select top-%d grasps", top_n_grasp_used);
+  ROS_INFO_STREAM("Select top-" << msg.grasps.size() << " grasps.");
 
   // Get the R1 - R4 region and FFC score of each GraspConfig
-  for(int i = 0; i < top_n_grasp_used; i++)
+  for(int i = 0; i < msg.grasps.size(); i++)
    {
       // Read GraspConfig
       std::cout << "--- Compute grasp "<< i+1 << " ---" << std::endl;
@@ -539,7 +538,7 @@ void GraspConfigListCallback(const gpd::GraspConfigList &msg)
   int index_of_max = std::distance(FFC_score_list.begin(), FFC_score_list_iter);
 
   std::cout << "--- Computed result --- " << std::endl;
-  std::cout << "Index of GraspConfig: "<< index_of_max +1 << std::endl;
+  std::cout << "Index of best FFC GraspConfig: "<< index_of_max +1 << std::endl;
 
   // Publish GraspConfig to robot
   gpd::GraspConfig FFC_Grasp = msg.grasps[index_of_max];
