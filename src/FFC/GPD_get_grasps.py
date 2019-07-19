@@ -3,8 +3,9 @@ import rospy
 import sys
 import tf
 import tf2_ros
-
 import numpy as np
+import random
+from gpd.msg import GraspConfig
 from gpd.msg import GraspConfigList
 from std_msgs.msg import Int32
 from tf.transformations import quaternion_from_euler
@@ -13,23 +14,24 @@ from visualization_msgs.msg import MarkerArray
 from geometry_msgs.msg import Pose
 from geometry_msgs.msg import PoseStamped 
 import geometry_msgs.msg
-
-
 import moveit_commander
 import moveit_msgs.msg
 from moveit_commander.conversions import pose_to_list
 
-grasps = []
-x_offset = 0.05
-y_offset = 0
-gripper_length = 0.3
-vertical_threshold = 0.70
-forward_dis = 0.1
+GPD_recived = []
+x_offset = -0.025
+y_offset = -0.02
+z_offset = -0.03
+gripper_length = 0.275
+vertical_threshold = 0.0
+forward_dis1 = 0.1075
+forward_dis2 = 0.05
+WS_filter_threshold = 0.01
 
 # Get the msg from /cloud_indexed topic.
 def callback(msg):
-    global grasps
-    grasps = msg.grasps
+    global GPD_recived
+    GPD_recived = msg.grasps
 
 # Add a new frame for target object.
 def add_target_frame(transfer_point):
@@ -96,20 +98,28 @@ def reach_robot():
 
     rospy.sleep(1)
 
-    # Hit a key to excute the planning
-    raw_input('Press make sure it is safe and press Enter to continue...')
-
     # Execute the motion trajectory
-    if(plan_success):
-        rospy.sleep(1)
-        group.execute(plan_success, wait=True)
-
-    # Make sure the motion is stop
-    group.stop()
-    group.clear_pose_targets()
-
-    rospy.sleep(1)
-
+    if(plan_success.joint_trajectory.points):
+        # Hit a key to excute the planning
+        print 'Press make sure it is safe and input key to continue... (Y/N)'
+        in_content = raw_input('Input:')
+        if in_content == 'Y' or in_content == "y":
+            rospy.sleep(1)
+            group.execute(plan_success, wait=True)
+                
+            # Make sure the motion is stop
+            group.stop()
+            group.clear_pose_targets()
+                
+            rospy.sleep(1)
+        elif in_content == 'N' or in_content == 'n':
+            exit(0)
+        else:
+            print 'Wrong key.'
+            exit(0)
+    else:
+        exit(0)
+            
 
 def robot_forward_move(forward_dis):
     # Instantiate a tf_Transform object.
@@ -121,6 +131,12 @@ def robot_forward_move(forward_dis):
     forward_point.header.frame_id = 'r1_link_t'
     forward_point.header.stamp = rospy.Time(0)
     forward_point.pose.position.x = forward_dis
+    forward_point.pose.position.y = 0
+    forward_point.pose.position.z = 0
+    forward_point.pose.orientation.x = 0
+    forward_point.pose.orientation.y = 0
+    forward_point.pose.orientation.z = 0
+    forward_point.pose.orientation.w = 0
     transfer_forward_point = tf_listener.transformPose('r1_base_link', forward_point)
 
     # Plan the motion trajectory.
@@ -131,7 +147,7 @@ def robot_forward_move(forward_dis):
     rospy.sleep(1)
 
     # Hit a key to excute the planning.
-    raw_input('Press make sure it is safe and press Enter to continue...\n')
+    # raw_input('Press make sure it is safe and press Enter to continue...\n')
 
     # Execute the motion trajectory.
     if(plan_success):
@@ -163,6 +179,10 @@ def move_to_target(top_grasp_tra, top_grasp_ori):
     original_point.pose.orientation.y = top_grasp_ori[1]
     original_point.pose.orientation.z = top_grasp_ori[2]
     transfer_point = tf_listener.transformPose('r1_base_link', original_point)
+    
+    transfer_point.pose.position.x = transfer_point.pose.position.x + x_offset
+    transfer_point.pose.position.y = transfer_point.pose.position.y + y_offset
+    transfer_point.pose.position.z = transfer_point.pose.position.z + z_offset
 
     # Add a target frame to localize.
     add_target_frame(transfer_point)
@@ -173,73 +193,83 @@ def move_to_target(top_grasp_tra, top_grasp_ori):
     # Move the robot to reach pose.
     reach_robot()
 
+    rospy.sleep(1)
+
     # Move the robot forward to grasp the object.
-    robot_forward_move(forward_dis)
+    robot_forward_move(forward_dis1)
+    #robot_forward_move(forward_dis2)
     
     # Close the gripper
     pub_grippper.publish(1)
     
     rospy.loginfo('... Done ...')
-    
-    rospy.spin()
 
-
+    exit(0)
 
 
 def main():
+
     # Wait for grasps to arrive.
     rospy.sleep(1)
+    print 'Threshold value: ', vertical_threshold
 
     #Get the highest score grasp pose
     while not rospy.is_shutdown():    
-        if len(grasps) > 0:
-            top_grasp = grasps[0] # grasps are sorted in descending order by score.
-            rospy.loginfo('Received %d grasps.', len(grasps))
+        if len(GPD_recived)> 0:
+            # Filter of working space
+            WS_grasplist = []
+            for grasp in GPD_recived:
+                if(grasp.bottom.x + WS_filter_threshold > grasp.top.x):
+                    WS_grasplist.append(grasp)
+                else:
+                    continue
+            print 'Received %d WS_grasps.' % len(WS_grasplist)
+            number = (random.randint(1,len(WS_grasplist)))-1
+            print 'Select number %d grasp'% number
+            #top_grasp = WS_grasplist[number]
+            top_grasp = WS_grasplist[number] 
        
             # Check the robot and table is collided or not.
             a = np.array([top_grasp.approach.x, top_grasp.approach.y, top_grasp.approach.z])
-            b = np.array([0 , 0.70710766833 ,0.707105894042]) #vertical appraoch vector value 
+            b = np.array([0, 0.707106781187, 0.707106781187]) #vertical appraoch vector value 
             dot_product = np.dot(a,b)
-            print 'Threshold value: ', dot_product
 
             # Give a threshold of collided
             if dot_product >= vertical_threshold :
                 #Get translation and orientation data.
-                print 'Choose the data of highest grasp score:'
+                print 'Value of dot product: ', dot_product
+                #print 'Choose the data of highest grasp score:'
                 top_grasp_tra = [top_grasp.bottom.x, top_grasp.bottom.y, top_grasp.bottom.z]
-                print 'The translation representation is:'
-                print 'x:%s \ny:%s \nz:%s' % (top_grasp_tra[0],top_grasp_tra[1], top_grasp_tra[2])
+                #print 'The translation representation is:'
+                #print 'x:%s \ny:%s \nz:%s' % (top_grasp_tra[0],top_grasp_tra[1], top_grasp_tra[2])
 
                 R = np.matrix([[top_grasp.approach.x, top_grasp.binormal.x, top_grasp.axis.x], 
                                [top_grasp.approach.y, top_grasp.binormal.y, top_grasp.axis.y],
                                [top_grasp.approach.z, top_grasp.binormal.z, top_grasp.axis.z]])
-                print 'Rotation Matrix:\n',(R)
+                #print 'Rotation Matrix:\n',(R)
                 
                 # Transform the RPY to quaterion.
                 euler_R = tf.transformations.euler_from_matrix(R)
                 top_grasp_ori = tf.transformations.quaternion_from_euler(euler_R[0], euler_R[1], euler_R[2])
 
-                print 'The quaternion representation is:'
-                print 'x:%s \ny:%s \nz:%s \nw:%s' % (top_grasp_ori[0], top_grasp_ori[1], top_grasp_ori[2], top_grasp_ori[3])
+                #print 'The quaternion representation is:'
+                #print 'x:%s \ny:%s \nz:%s \nw:%s' % (top_grasp_ori[0], top_grasp_ori[1], top_grasp_ori[2], top_grasp_ori[3])
 
                 #Publish the marker and move robot by translation and orientation data.
                 move_to_target(top_grasp_tra, top_grasp_ori)    
         
             else:
                 rospy.logwarn('Bad grasp pose generated.')
-                # rospy.sleep(1)
-                main()
+                exit(0)
 
 
 
 # Create a ROS node.
-rospy.init_node('get_grasps')
+rospy.init_node('GPD_get_grasps')
 rospy.loginfo('Start to get grasp data...')
 
-# Subscribe to the ROS topic that contains the grasps.
-sub = rospy.Subscriber('/detect_grasps/clustered_grasps', GraspConfigList, callback)
 # Publish to the ROS topic that grasp data.
-pub_marker = rospy.Publisher('/grasp_marker', MarkerArray, queue_size=1)
+pub_marker = rospy.Publisher('/grasp_marker', MarkerArray, queue_size=10)
 # Publish to the ROS topic that gripper action.
 pub_grippper = rospy.Publisher('/control_grasp', Int32, queue_size=10)
 
@@ -256,8 +286,15 @@ robot = moveit_commander.RobotCommander()
 group_name = 'r1'
 group = moveit_commander.MoveGroupCommander(group_name)
 # Set max velocity and max acceleration of robot moving
-group.set_goal_orientation_tolerance(0.025)
-group.set_goal_position_tolerance(0.01)
-group.set_max_velocity_scaling_factor(0.08)
+group.set_goal_orientation_tolerance(0.001)
+group.set_goal_position_tolerance(0.001)
+group.set_max_velocity_scaling_factor(0.04)
+group.set_planner_id('RRTConnectkConfigDefault')
+group.allow_replanning(True)
+group.set_num_planning_attempts(10)
+group.set_max_acceleration_scaling_factor(1)
+
+# Subscribe to the ROS topic that contains the grasps.
+sub = rospy.Subscriber('/detect_grasps/clustered_grasps', GraspConfigList, callback)
 
 main()

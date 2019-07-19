@@ -25,12 +25,14 @@
 #include <vector>  
 #include <list> 
 
-float hand_outer_diameter = 0.10;    // Hand configuration
+float hand_outer_diameter = 0.145;   // Hand configuration
 float hand_depth = 0.065;            // Hand configuration
 float hand_height = 0.02;            // Hand configuration
 float finger_width = 0.015;          // Hand configuration
-float nt = 0.7;                      // Threshold of vertical normals
-float h = 0.01;                      // Threshold of Left and Right offsets
+float nt = 0.9;                      // Threshold of vertical normals
+float h = 0.025;                      // Threshold of Left and Right offsets
+float WS_filter_threshold = 0.01;
+float theta_p = 10;
 
 //geometry_msgs::PointStamped R1, R2, R3, R4;
 ros::Publisher pub_r1_r4_pc, pub_FFC_pc, pub_FFC_GraspConfig, pub_original_candidate, pub_FFC_candidate;
@@ -176,8 +178,107 @@ visualization_msgs::Marker createHandBaseMarker(const Eigen::Vector3d& start, co
   return marker;
 }
 
+// Caculate the stability of object
+double Caculate_Stability(pcl::PointCloud<pcl::PointXYZ>::Ptr left_result_cloud, pcl::PointCloud<pcl::PointXYZ>::Ptr right_result_cloud)
+{
+  // std::cout << "#points: " << left_result_cloud->points.size() << std::endl;
+  // std::cout << "#points: " << right_result_cloud->points.size() << std::endl;
+
+  if (left_result_cloud->points.size() > 0 && right_result_cloud->points.size() > 0)
+  {
+    pcl::search::KdTree<pcl::PointXYZ>::Ptr kdtree (new pcl::search::KdTree<pcl::PointXYZ> ());  
+    pcl::PointCloud<pcl::Normal>::Ptr left_cloud_normals (new pcl::PointCloud<pcl::Normal>);
+    pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> left_ne;
+    left_ne.setInputCloud (left_result_cloud);
+    left_ne.setSearchMethod (kdtree);
+    left_ne.setRadiusSearch (0.01);
+    left_ne.compute (*left_cloud_normals);
+    
+    pcl::PointCloud<pcl::Normal>::Ptr right_cloud_normals (new pcl::PointCloud<pcl::Normal>);
+    pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> right_ne;
+    right_ne.setInputCloud (right_result_cloud);
+    right_ne.setSearchMethod (kdtree);
+    right_ne.setRadiusSearch (0.01);
+    right_ne.compute (*right_cloud_normals);
+
+    //std::cout << "#normal: " << left_cloud_normals->points.size() << std::endl;
+    //std::cout << "#normal: " << right_cloud_normals->points.size() << std::endl;
+
+    double sum_nm = 0.0;
+    for (int n = 0; n < left_cloud_normals->points.size(); n++)
+    {
+      Eigen::Vector3d y_n(0, 0, 0);
+      y_n[0] = -left_cloud_normals->points[n].normal_x;
+      y_n[1] = -left_cloud_normals->points[n].normal_y;
+      y_n[2] = -left_cloud_normals->points[n].normal_z;
+      
+      double sum_m = 0.0;
+      for (int m = 0; m < right_cloud_normals->points.size(); m++)
+      {
+        Eigen::Vector3d x_m(0, 0, 0);
+        x_m[0] = -right_cloud_normals->points[m].normal_x;
+        x_m[1] = -right_cloud_normals->points[m].normal_y;
+        x_m[2] = -right_cloud_normals->points[m].normal_z;
+        
+        Eigen::Vector3d f_mn(0, 0, 0);
+        f_mn[0] = left_result_cloud->points[m].x - right_result_cloud->points[n].x;
+        f_mn[1] = left_result_cloud->points[m].y - right_result_cloud->points[n].y;
+        f_mn[2] = left_result_cloud->points[m].z - right_result_cloud->points[n].z;
+        double x_y_z_normalization = sqrt(pow(f_mn[0], 2) + pow(f_mn[1], 2) + pow(f_mn[2], 2));
+        f_mn[0] = f_mn[0] / x_y_z_normalization;
+        f_mn[1] = f_mn[1] / x_y_z_normalization;
+        f_mn[2] = f_mn[2] / x_y_z_normalization;
+
+        int xm_fmn = 0;
+        int yn_fmn = 0;
+        int muti_xm_yn_fmn = 0;
+
+        if (x_m.dot(f_mn) >= cos(theta_p))
+        {
+          xm_fmn = 1;
+        }
+        else
+        {
+          xm_fmn = 0;
+        }
+
+        if (y_n.dot(f_mn) <= -(cos(theta_p)))
+        {
+          yn_fmn = 1;
+        }
+        else
+        {
+          yn_fmn = 0;
+        }
+        
+        muti_xm_yn_fmn = xm_fmn * yn_fmn;
+        sum_m = sum_m + muti_xm_yn_fmn;
+        // std::cout << "Sum_m: " << sum_m << std::endl;
+      }
+      sum_nm = sum_nm + sum_m;
+      // std::cout << "Sum_nm: " << sum_nm << std::endl;
+    }
+    
+    double stability_result;
+    double num_point;
+    stability_result = sum_nm / (left_result_cloud->points.size() * right_result_cloud->points.size());
+    num_point = (left_result_cloud->points.size() + right_result_cloud->points.size()) * 0.001;
+    stability_result = stability_result + num_point;
+    // std::cout << "Sum_nm: " << sum_nm << std::endl;
+    // std::cout << "Stability_result: " << stability_result << std::endl;
+    return stability_result;
+  }
+  else
+  {
+    double none_FFC;
+    none_FFC =left_result_cloud->points.size() + right_result_cloud->points.size();
+    none_FFC = none_FFC * 0.001;
+    return none_FFC;
+  }
+}
+
 // Compute the normal and number of points that in R1 - R4 region
-int Compute_Normal_and_Number(sensor_msgs::PointCloud2 &R1_R4_region_pc)
+double Compute_Normal_and_Number(sensor_msgs::PointCloud2 &R1_R4_region_pc)
 {
 	// Unit vector of y-axis
   Eigen::Vector3d v2(0, 1, 0);
@@ -291,25 +392,42 @@ int Compute_Normal_and_Number(sensor_msgs::PointCloud2 &R1_R4_region_pc)
 
 	//std::cout << "Left: " << min << std::endl;
 	//std::cout << "Right: " << max << std::endl;
-	std::cout << "Left_number: " << Left_list.size() << std::endl;
-	std::cout << "Right_number: " << Right_list.size() << std::endl;
+	//std::cout << "Left_number: " << Left_list.size() << std::endl;
+	//std::cout << "Right_number: " << Right_list.size() << std::endl;
 
   // Insert the Left and Right points to pointcloud
-  pcl::PointCloud<pcl::PointXYZ> *result_cloud = new pcl::PointCloud<pcl::PointXYZ>;
-  
+  pcl::PointCloud<pcl::PointXYZRGB> *result_cloud = new pcl::PointCloud<pcl::PointXYZRGB>;
+  pcl::PointCloud<pcl::PointXYZ>::Ptr left_result_cloud (new pcl::PointCloud<pcl::PointXYZ>);
+  pcl::PointCloud<pcl::PointXYZ>::Ptr right_result_cloud (new pcl::PointCloud<pcl::PointXYZ>);
+
   for(Left_list_iter = Left_list.begin() ; Left_list_iter != Left_list.end() ; Left_list_iter++)
     {
-      pcl::PointXYZ point = {clound_xyz[*Left_list_iter][0], clound_xyz[*Left_list_iter][1], clound_xyz[*Left_list_iter][2]};
+      pcl::PointXYZRGB point;
+      point.x = clound_xyz[*Left_list_iter][0];
+      point.y = clound_xyz[*Left_list_iter][1];
+      point.z = clound_xyz[*Left_list_iter][2];
+      point.r = 255;
       result_cloud->push_back(point);
+      pcl::PointXYZ point_left = {clound_xyz[*Left_list_iter][0], clound_xyz[*Left_list_iter][1], clound_xyz[*Left_list_iter][2]};
+      left_result_cloud->points.push_back(point_left);
     }
 
   for(Right_list_iter = Right_list.begin() ; Right_list_iter != Right_list.end() ; Right_list_iter++)
     {
-      pcl::PointXYZ point = {clound_xyz[*Right_list_iter][0], clound_xyz[*Right_list_iter][1], clound_xyz[*Right_list_iter][2]};
+      pcl::PointXYZRGB point;
+      point.x = clound_xyz[*Right_list_iter][0];
+      point.y = clound_xyz[*Right_list_iter][1];
+      point.z = clound_xyz[*Right_list_iter][2];
+      point.r = 255;
       result_cloud->push_back(point);
+      pcl::PointXYZ point_right = {clound_xyz[*Right_list_iter][0], clound_xyz[*Right_list_iter][1], clound_xyz[*Right_list_iter][2]};
+      right_result_cloud->points.push_back(point_right);      
     }
+
+  std::cout << "Left_cloud_points_number: " << left_result_cloud->points.size() << std::endl;
+  std::cout << "Right_cloud_points_number: " << right_result_cloud->points.size() << std::endl;
   
-  std::cout << "Result_cloud_points_number: " << result_cloud->width*result_cloud->height << std::endl;
+  std::cout << "Result_cloud_points_number: " << result_cloud->points.size() << std::endl;
 
   // Convert pointcloud to ROS PointCloud2 and show it in RVIZ
   pcl::PCLPointCloud2 PCL_Result_cloud;
@@ -322,10 +440,11 @@ int Compute_Normal_and_Number(sensor_msgs::PointCloud2 &R1_R4_region_pc)
 
   pub_FFC_pc.publish(ROS_Result_cloud);
 
-  // Get the score of FFC
-  int FFC_score = Left_list.size()+Right_list.size();
-  
-  return FFC_score;
+  // Caculate the stability of object    
+  double score = Caculate_Stability(left_result_cloud, right_result_cloud);
+  // score = score + (Left_list.size() + Right_list.size()) * 0.001;
+  // std::cout << "Score: " << score << std::endl;
+  return score;
   
   // Visualize point normals
   // pcl::visualization::PCLVisualizer viwer("PCL");
@@ -336,7 +455,6 @@ int Compute_Normal_and_Number(sensor_msgs::PointCloud2 &R1_R4_region_pc)
   // {
   //   viwer.spinOnce();
   // }
-  
 }
 
 // PassThrough the original pointcloud from camera 
@@ -412,7 +530,7 @@ sensor_msgs::PointCloud2 Passthrough_R1_R4(sensor_msgs::PointCloud2 &t_pc)
 }
 
 // Get R1, R2, R3, R4 points position and P frame
-void GetR1toR4(gpd::GraspConfig grasps, sensor_msgs::PointCloud2 &t_pc)
+void GetR1toR4(gpd::GraspConfig grasp, sensor_msgs::PointCloud2 &t_pc)
 {
   // Set up the translation and orientation of P frame from camera frame
   static tf2_ros::StaticTransformBroadcaster br;
@@ -423,13 +541,13 @@ void GetR1toR4(gpd::GraspConfig grasps, sensor_msgs::PointCloud2 &t_pc)
   transformStamped.header.stamp = ros::Time::now();
   transformStamped.header.frame_id = "kinect2_link";
   transformStamped.child_frame_id = "p_frame";
-  transformStamped.transform.translation.x = grasps.bottom.x;
-  transformStamped.transform.translation.y = grasps.bottom.y;
-  transformStamped.transform.translation.z = grasps.bottom.z;
+  transformStamped.transform.translation.x = grasp.bottom.x;
+  transformStamped.transform.translation.y = grasp.bottom.y;
+  transformStamped.transform.translation.z = grasp.bottom.z;
  
-  R_matrix.setValue(grasps.approach.x, grasps.binormal.x, grasps.axis.x,
-                    grasps.approach.y, grasps.binormal.y, grasps.axis.y,
-                    grasps.approach.z, grasps.binormal.z, grasps.axis.z);
+  R_matrix.setValue(grasp.approach.x, grasp.binormal.x, grasp.axis.x,
+                    grasp.approach.y, grasp.binormal.y, grasp.axis.y,
+                    grasp.approach.z, grasp.binormal.z, grasp.axis.z);
   R_matrix.getRotation(q);
 
   transformStamped.transform.rotation.x = q.x();
@@ -443,22 +561,22 @@ void GetR1toR4(gpd::GraspConfig grasps, sensor_msgs::PointCloud2 &t_pc)
   close_region_R1.header.stamp = ros::Time::now();
   close_region_R1.header.frame_id = "p_frame";
   close_region_R1.point.x = 0;
-  close_region_R1.point.y = (hand_outer_diameter / 2);
+  close_region_R1.point.y = (((hand_outer_diameter-finger_width*2)+0.005) / 2);
 
   close_region_R2.header.stamp = ros::Time::now();
   close_region_R2.header.frame_id = "p_frame";
   close_region_R2.point.x = 0;
-  close_region_R2.point.y = -(hand_outer_diameter / 2);
+  close_region_R2.point.y = -(((hand_outer_diameter-finger_width*2)+0.005) / 2);
       
   close_region_R3.header.stamp = ros::Time::now();
   close_region_R3.header.frame_id = "p_frame";
   close_region_R3.point.x = hand_depth;
-  close_region_R3.point.y = (hand_outer_diameter / 2);
+  close_region_R3.point.y = (((hand_outer_diameter-finger_width*2)+0.005) / 2);
 
   close_region_R4.header.stamp = ros::Time::now();
   close_region_R4.header.frame_id = "p_frame";
   close_region_R4.point.x = hand_depth;
-  close_region_R4.point.y = -(hand_outer_diameter / 2);
+  close_region_R4.point.y = -(((hand_outer_diameter-finger_width*2)+0.005) / 2);
 
   // Transform the pointcloud frame from camera to P frame 
   sensor_msgs::PointCloud2 pc;
@@ -475,63 +593,63 @@ void GetR1toR4(gpd::GraspConfig grasps, sensor_msgs::PointCloud2 &t_pc)
   {
     ROS_ERROR("\nError occured: %s ", e.what());
   }
-
-  // Convert R1_R4 to Kinect2_link frame
-  // try
-  // {
-  //   tf2_ros::Buffer tfBuffer;
-  //   tf2_ros::TransformListener tfListener(tfBuffer);
-
-  //   geometry_msgs::TransformStamped p_frame_to_kinect2_link;
-      
-  //   p_frame_to_kinect2_link = tfBuffer.lookupTransform("kinect2_link", "p_frame", ros::Time::now(), ros::Duration(3.0));
-  //   tf2::doTransform(close_region_R1, R1, p_frame_to_kinect2_link);
-  //   tf2::doTransform(close_region_R2, R2, p_frame_to_kinect2_link);
-  //   tf2::doTransform(close_region_R3, R3, p_frame_to_kinect2_link);
-  //   tf2::doTransform(close_region_R4, R4, p_frame_to_kinect2_link);
-  // }
-  // catch ( ros::Exception &e )
-  // {
-  //   ROS_ERROR("Error occured: %s ", e.what());
-  // }
-
-  // ROS_INFO("r1: %f , %f , %f", R1.point.x, R1.point.y, R1.point.z);
-  // ROS_INFO("r2: %f , %f , %f", R2.point.x, R2.point.y, R2.point.z);
-  // ROS_INFO("r3: %f , %f , %f", R3.point.x, R3.point.y, R3.point.z);
-  // ROS_INFO("r4: %f , %f , %f", R4.point.x, R4.point.y, R4.point.z);  
 }
 
 // GraspConfig subscriber callback function
 void GraspConfigListCallback(const gpd::GraspConfigList &msg)
 {
-  std::list<int> FFC_score_list;
-  std::list<int>::iterator FFC_score_list_iter;
+  std::list<double> FFC_score_list;
+  std::list<double>::iterator FFC_score_list_iter;
   
   ROS_INFO_STREAM("Select top-" << msg.grasps.size() << " grasps.");
 
+  // Filter of working space
+  gpd::GraspConfigList WS_grasplist;
+  for(int n = 0; n < msg.grasps.size(); n++)
+  {
+    gpd::GraspConfig grasp = msg.grasps[n]; 
+    
+    if(grasp.bottom.x + WS_filter_threshold > grasp.top.x)
+    {
+      WS_grasplist.grasps.push_back(grasp);
+    }
+    else
+    {
+      continue;
+    }
+  }
+
+  if(WS_grasplist.grasps.size() == 0)
+  {
+    ros::shutdown();
+  }      
+
+  ROS_INFO_STREAM("Number of grasps in WS: " << WS_grasplist.grasps.size());
+
   // Get the R1 - R4 region and FFC score of each GraspConfig
-  for(int i = 0; i < msg.grasps.size(); i++)
-   {
-      // Read GraspConfig
-      std::cout << "--- Compute grasp "<< i+1 << " ---" << std::endl;
-      gpd::GraspConfig grasps = msg.grasps[i]; 
-
-      // Get the R1 - R4 region
-      sensor_msgs::PointCloud2 t_pc;
-      sensor_msgs::PointCloud2 R1_R4_region_pc;
-
-      GetR1toR4(grasps, t_pc);
-      R1_R4_region_pc = Passthrough_R1_R4(t_pc);
-      pub_r1_r4_pc.publish(R1_R4_region_pc);
-      std::cout << "R1_R4 pointcloud points number: "<< R1_R4_region_pc.width * R1_R4_region_pc.height << std::endl;
+  for(int i = 0; i < WS_grasplist.grasps.size(); i++)
+  {  
+    // Read GraspConfig
+    gpd::GraspConfig WS_grasp = WS_grasplist.grasps[i]; 
       
-      // Compute FFC score
-      int FFC_score;
-      FFC_score = Compute_Normal_and_Number(R1_R4_region_pc);
+    std::cout << "--- Compute grasp "<< i+1 << " ---" << std::endl;
+      
+    // Get the R1 - R4 region
+    sensor_msgs::PointCloud2 t_pc;
+    sensor_msgs::PointCloud2 R1_R4_region_pc;
 
-      FFC_score_list.push_back(FFC_score);
+    GetR1toR4(WS_grasp, t_pc);
+    R1_R4_region_pc = Passthrough_R1_R4(t_pc);
+    pub_r1_r4_pc.publish(R1_R4_region_pc);
+    std::cout << "R1_R4 pointcloud points number: "<< R1_R4_region_pc.width * R1_R4_region_pc.height << std::endl;
 
-   }
+    // Compute FFC score
+    double FFC_score = Compute_Normal_and_Number(R1_R4_region_pc);
+    // std::cout << "CNN_Score: " << WS_grasp.score.data << std::endl;
+    // FFC_score = FFC_score + WS_grasp.score.data * 0.001;
+    std::cout << "FFC_Score: " << FFC_score << std::endl;
+    FFC_score_list.push_back(FFC_score);
+  }
 
   // Find out the highest score in the FFC score list and get its index
   FFC_score_list_iter = std::max_element(FFC_score_list.begin(), FFC_score_list.end());
@@ -541,7 +659,7 @@ void GraspConfigListCallback(const gpd::GraspConfigList &msg)
   std::cout << "Index of best FFC GraspConfig: "<< index_of_max +1 << std::endl;
 
   // Publish GraspConfig to robot
-  gpd::GraspConfig FFC_Grasp = msg.grasps[index_of_max];
+  gpd::GraspConfig FFC_Grasp = WS_grasplist.grasps[index_of_max];
   pub_FFC_GraspConfig.publish(FFC_Grasp);
 
   // Publish grasp marker to RVIZ
